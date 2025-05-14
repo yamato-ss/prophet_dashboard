@@ -1,0 +1,7 @@
+# キャッシュファイルを除外
+*.pyc
+__pycache__/
+node_modules/
+merged_all.csv
+prepared_for_xgb.csv
+/output
