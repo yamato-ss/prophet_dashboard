@@ -1,122 +1,55 @@
-
 import streamlit as st
-import pandas as pd
-import os
-from datetime import datetime
-from analysis.forecasting import (
-    forecast_machine_with_prophet,
-    batch_forecast_for_hall,
-    batch_forecast_all,
-)
-from utils import sanitize_filename
-from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-from combine_and_preprocess import combine_and_preprocess
+from tabs.prophet_tab import prophet_tab
+from tabs.xgboost_tab import show as xgboost_tab
+from tabs.trend_tab import show as trend_tab
+from tabs.preprocess_tab import show as preprocess_tab
+from tabs.train_tab import show as train_tab
+from tabs.score_tab import show as score_tab
 
-st.set_page_config(layout="wide", page_title="差枚予測ダッシュボード")
+st.set_page_config(layout="wide")
+st.title("🎰 パチスロ狙い台分析ダッシュボード")
 
-st.title("🎰 ホールデータ AI分析ダッシュボード")
+main_tabs = st.tabs(["📊 分析・閲覧", "⚙️ データ生成・操作"])
 
-# データ結合と前処理のトリガー
-if st.button("🔄 OriginData を結合・前処理実行"):
-    with st.spinner("処理中..."):
-        try:
-            output_dir = "../"
-            combine_and_preprocess(output_dir)
-            st.success("✅ 結合・前処理が完了しました。prepared_for_xgb.csv が出力されました。")
-        except Exception as e:
-            st.error(f"❌ エラーが発生しました: {str(e)}")
+with main_tabs[0]:
+    view_option = st.radio("表示内容を選択", [
+        "🔮 機種別・差枚の未来予測（Prophet）",
+        "🎯 高設定スコア予測ランキング（XGBoost）",
+        "🔍 傾向分析（末尾・並び）"
+    ])
 
-# アップロード
-uploaded_file = st.file_uploader("CSVファイルを選択", type=["csv"])
+    if view_option == "🔮 機種別・差枚の未来予測（Prophet）":
+        prophet_tab()
+    elif view_option == "🎯 高設定スコア予測ランキング（XGBoost）":
+        xgboost_tab()
+    elif view_option == "🔍 傾向分析（末尾・並び）":
+        trend_tab()
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    df["日付"] = pd.to_datetime(df["日付"])
-    halls = sorted(df["ホール名"].dropna().unique().tolist())
-    latest_date = df["日付"].max()
-    df["日付"] = pd.to_datetime(df["日付"])
-    unique_dates = sorted(df["日付"].dt.date.unique())[::-1]
-    
-    tab1, tab2, tab3 = st.tabs(["📈 Prophet予測", "🧠 XGBoost予測", "🔍 傾向分析"])
+with main_tabs[1]:
+    # 🔧 操作の流れを表示（radioの前に）
+    st.markdown("""
+    ### 🧭 操作の流れ（推奨ステップ）
 
-    with tab1:
-        st.header("📈 Prophetによる差枚予測")
+    1. **⚙️ データ統合・特徴量生成**  
+       → 複数ホールのCSVを統合し、`prepared_data.csv` を出力します。
 
-        selected_hall = st.selectbox("ホールを選択", halls, key="hall_prophet")
-        if selected_hall:
-            latest_date = df[df["ホール名"] == selected_hall]["日付"].max()
-            filtered = df[(df["ホール名"] == selected_hall) & (df["日付"] == latest_date)]
-            machine_counts = (
-                filtered.groupby("機種名")["台番号"]
-                .nunique()
-                .reset_index(name="台数")
-                .sort_values("台数", ascending=False)
-            )
-            machine_options = [f"{row['機種名']}（{row['台数']}台）" for _, row in machine_counts.iterrows()]
-            selected_machine = st.selectbox("機種を選択", machine_options, key="machine_prophet")
-            forecast_days = st.slider("予測日数", 3, 14, 7)
+    2. **✎ XGBoostモデル学習**  
+       → `prepared_data.csv` を使ってモデルを学習し、`models/xxx.json` を出力します。
 
-            if st.button("📈 この機種を予測実行"):
-                cleaned_machine = selected_machine.split("（")[0]
-                fig = forecast_machine_with_prophet(df[df["ホール名"] == selected_hall], cleaned_machine, forecast_days)
-                st.image(fig)
+    3. **⚡ 高設定スコア出力**  
+       → モデルを選んで `predicted_with_score.csv` を出力。  
+       → ランキング表示タブで確認できます。
+    """, unsafe_allow_html=True)
 
-            if st.button("📊 このホール全機種を一括予測"):
-                logs = batch_forecast_for_hall(df, selected_hall, forecast_days)
-                st.text_area("実行ログ", logs, height=300)
+    op_option = st.radio("操作内容を選択", [
+        "⚙️ データ統合・特徴量生成",
+        "✎XGBoostモデル学習",
+        "⚡ 高設定スコア出力"
+    ])
 
-            if st.button("🔁 全ホール一括予測"):
-                logs = batch_forecast_all(df, forecast_days)
-                st.text_area("全ホールログ", logs, height=300)
-
-        log_dir = "output/logs"
-        if os.path.exists(log_dir):
-            logs = sorted(os.listdir(log_dir), reverse=True)
-            if logs:
-                latest_log = logs[0]
-                st.subheader(f"📄 最新ログ: {latest_log}")
-                with open(os.path.join(log_dir, latest_log), encoding="utf-8") as f:
-                    st.text(f.read())
-
-    with tab2:
-        st.header("🧠 高設定スコア予測（XGBoost）")
-
-        selected_hall = st.selectbox("ホールを選択", halls, key="hall_xgb")
-        target_date = st.selectbox("予測対象日", unique_dates, key="date_xgb")
-        target_datetime = pd.to_datetime(target_date)
-
-        hall_df = df[df["ホール名"] == selected_hall]
-
-        if st.button("🔮 XGBoost予測実行"):
-            pred_target = hall_df[hall_df["日付"] == target_datetime]
-            train_data = hall_df[hall_df["日付"] < target_datetime]
-
-            if len(pred_target) == 0 or len(train_data) < 100:
-                st.warning("予測対象または学習データが不足しています。")
-            else:
-                feature_cols = ["G数", "差枚", "BB", "RB", "ART", "末尾", "曜日", "スコア"]
-                X = train_data[feature_cols]
-                y = train_data["高設定"]
-                X_pred = pred_target[feature_cols]
-
-                model = XGBClassifier(use_label_encoder=False, eval_metric="logloss")
-                model.fit(X, y)
-
-                pred_probs = model.predict_proba(X_pred)[:, 1]
-                pred_target = pred_target.copy()
-                pred_target["予測確率"] = pred_probs
-
-                ranking = (
-                    pred_target[["機種名", "台番号", "G数", "差枚", "スコア", "予測確率"]]
-                    .sort_values("予測確率", ascending=False)
-                    .reset_index(drop=True)
-                )
-
-                st.subheader(f"🏆 {selected_hall} のその日の出玉による設定信頼度（{target_date.strftime('%Y-%m-%d')}）")
-                st.dataframe(ranking.head(100))
-
-    with tab3:
-        st.header("🔍 末尾・並びなどの傾向分析（今後実装予定）")
-        st.info("このタブでは末尾番号や並びによる傾向を可視化予定です。")
+    if op_option == "⚙️ データ統合・特徴量生成":
+        preprocess_tab()
+    elif op_option == "✎XGBoostモデル学習":
+        train_tab()
+    elif op_option == "⚡ 高設定スコア出力":
+        score_tab()

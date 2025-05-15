@@ -6,7 +6,7 @@ import io
 from PIL import Image
 import os
 from datetime import datetime
-from utils import get_japanese_font, sanitize_filename
+from utils.common import get_japanese_font, sanitize_filename
 
 jp_font = get_japanese_font()
 

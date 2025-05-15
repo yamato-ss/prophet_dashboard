@@ -5,3 +5,5 @@ node_modules/
 merged_all.csv
 prepared_for_xgb.csv
 /output
+/data/*.json
+/data/*.csv
