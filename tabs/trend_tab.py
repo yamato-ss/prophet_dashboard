@@ -14,10 +14,7 @@ def load_scored_data(path="output/predicted_with_score.csv"):
     return pd.read_csv(path, parse_dates=["日付"])
 
 def show():
-    st.subheader("🎯 高設定スコア予測ランキング（XGBoost）")
-    st.markdown("""
-    このタブでは、XGBoostモデルによって予測された「高設定スコア」をもとに、ホール別・最新日のランキングを表示します。
-    """)
+    st.subheader("🔍傾向分析")
 
     # 🔧 事前案内
     st.markdown("""
@@ -34,7 +31,7 @@ def show():
 
     df = load_scored_data()
     if df.empty:
-        st.warning("予測データがありません。先にスコアを生成してください。")
+        st.warning("分析データがありません。先にスコアを生成してください。")
         return
 
     # ▼ ホール選択
