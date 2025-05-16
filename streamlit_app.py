@@ -4,7 +4,8 @@ from tabs.xgboost_tab import show as xgboost_tab
 from tabs.trend_tab import show as trend_tab
 from tabs.preprocess_tab import show as preprocess_tab
 from tabs.train_tab import show as train_tab
-from tabs.score_tab import show as score_tab
+from tabs.retrain_tab import show as retrain_tab
+from tabs.score_tab import score_tab
 
 st.set_page_config(layout="wide")
 st.title("🎰 パチスロ狙い台分析ダッシュボード")
@@ -44,6 +45,7 @@ with main_tabs[1]:
     op_option = st.radio("操作内容を選択", [
         "⚙️ データ統合・特徴量生成",
         "✎XGBoostモデル学習",
+        "✎XGBoostモデル自己学習ループ",
         "⚡ 高設定スコア出力"
     ])
 
@@ -51,5 +53,7 @@ with main_tabs[1]:
         preprocess_tab()
     elif op_option == "✎XGBoostモデル学習":
         train_tab()
+    elif op_option == "✎XGBoostモデル自己学習ループ":
+        retrain_tab()
     elif op_option == "⚡ 高設定スコア出力":
         score_tab()

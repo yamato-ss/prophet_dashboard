@@ -101,7 +101,7 @@ def show():
     st.dataframe(machine_summary_df, use_container_width=True)
 
 
-    st.markdown("#### 🧷 高スコア連番クラスタの分布と対象台番（機種名付き）")
+    st.markdown("#### 🧷 高スコア連番クラスタの分布と対象台番")
     # 🧷 高スコア連番クラスタの分布と対象台番
     latest_df = hall_df[hall_df["日付"] == selected_date].copy()
     ranked_df = latest_df.sort_values("高設定予測スコア", ascending=False).copy()
@@ -141,12 +141,15 @@ def show():
         st.warning(f"並びクラスタ解析でエラーが発生しました: {e}")
 
     # 🎨 スコア帯で色分け＆台番号に機種名を付加したランキング表示
-    st.markdown("#### 🎯 スコア帯ランキング（色分け + 台番→機種名）")
-
+    st.markdown("#### 🎯 スコア帯ランキング")
     try:
         display_df = ranked_df.copy()
-        display_df["前日スコア"] = display_df["前日スコア"].fillna(0.0).round(3)
-
+        display_df["前日スコア"] = display_df["前日スコア"].fillna(0).round(3)
+        # 小数点を消す対象列を整数化
+        display_df["スコア"] = display_df["スコア"].round(0).astype(int)
+        display_df["差枚"] = display_df["差枚"].round(0).astype(int)
+        display_df["G数"] = display_df["G数"].round(0).astype(int)
+        
         def score_color(score):
             if score > 0.8:
                 return "background-color: #ff9999"  # 赤系
@@ -159,10 +162,8 @@ def show():
         styled = display_df.style.applymap(
             lambda v: score_color(v) if isinstance(v, float) else "", subset=["高設定予測スコア"]
         )
-
         # 台番号に機種名を付加（例: "101（マイジャグV）"）
         display_df["台表示"] = display_df["台番号"].astype(str) + "（" + display_df["機種名"] + "）"
-
         # 表示列（順番調整）
         show_cols = ["台表示", "スコア", "差枚", "G数", "高設定予測スコア", "前日スコア"]
         st.dataframe(display_df[show_cols].reset_index(drop=True).style.applymap(

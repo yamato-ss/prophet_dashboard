@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import glob
+from utils.split_by_hall import split_prepared_data_by_hall
 
 def run_preprocessing(input_dir="data", output_dir="output"):
     os.makedirs(output_dir, exist_ok=True)
@@ -64,8 +65,13 @@ def run_preprocessing(input_dir="data", output_dir="output"):
     df_clean = merged.dropna(subset=["日付", "台番号", "機種名"])
 
     # 出力（予測スコアなし）
-    output_path = os.path.join(output_dir, "prepared_data.csv")
-    df_clean.to_csv(output_path, index=False)
-    print(f"[✅ 前処理完了] 保存先: {output_path}")
+    prepared_path = os.path.join(output_dir, "prepared_data.csv")
+    df_clean.to_csv(prepared_path, index=False)
+
+    # ▼ ホール別に分割保存（prepared_data_for_xgb_train.csv）
+    split_prepared_data_by_hall(
+        input_path=prepared_path,
+        output_root=os.path.join(output_dir, "for_xgb")
+    )
 
     return df_clean
