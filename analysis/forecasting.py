@@ -97,7 +97,7 @@ def batch_forecast_for_hall(df, hall_name, days=7, force=False):
 
             safe_hall = sanitize_filename(hall_name)
             safe_machine = sanitize_filename(machine_name)
-            output_dir = f"../output/{safe_hall}/{safe_machine}"
+            output_dir = f"output/{safe_hall}/{safe_machine}"
             os.makedirs(output_dir, exist_ok=True)
             png_path = os.path.join(output_dir, f"{today}.png")
             csv_path = os.path.join(output_dir, f"{today}.csv")
