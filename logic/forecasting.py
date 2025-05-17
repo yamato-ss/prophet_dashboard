@@ -60,6 +60,7 @@ def forecast_machine_with_prophet(df, machine_name, days=7):
     model.fit(grouped[["ds", "y"] + regressor_cols])
     future = model.make_future_dataframe(periods=days)
     future = add_date_flags(future)
+    future = apply_event_flags(future, hall_name)
     forecast = model.predict(future)
 
     safe_hall = sanitize_filename(hall_name)
@@ -123,23 +124,23 @@ def batch_forecast_for_hall(df, hall_name, days=7, force=False):
     results = []
     forecast_last_day = None
 
-    df['日付'] = pd.to_datetime(df['日付'])
-    hall_df = df[df['ホール名'] == hall_name]
-    latest_date = hall_df['日付'].max()
-    filtered = hall_df[hall_df['日付'] == latest_date]
+    df["日付"] = pd.to_datetime(df["日付"])
+    hall_df = df[df["ホール名"] == hall_name]
+    latest_date = hall_df["日付"].max()
+    filtered = hall_df[hall_df["日付"] == latest_date]
     grouped = filtered.groupby("機種名")["台番号"].nunique().reset_index(name="台数")
     machines = grouped.sort_values("台数", ascending=False)["機種名"].tolist()
 
     for machine_name in machines:
-        target = hall_df[hall_df['機種名'] == machine_name]
+        target = hall_df[hall_df["機種名"] == machine_name]
         if len(target) < 10:
             continue
 
         grouped_data = (
-            target.groupby('日付')['差枚']
+            target.groupby("日付")["差枚"]
             .mean()
             .reset_index()
-            .rename(columns={'日付': 'ds', '差枚': 'y'})
+            .rename(columns={"日付": "ds", "差枚": "y"})
         )
 
         if len(grouped_data) < 10:
@@ -167,35 +168,47 @@ def batch_forecast_for_hall(df, hall_name, days=7, force=False):
             os.makedirs(forecast_dir, exist_ok=True)
             os.makedirs(eval_dir, exist_ok=True)
 
-            # 学習期間の最終日で分割
             last_train_day = grouped_data["ds"].max()
             forecast_past = forecast[forecast["ds"] <= last_train_day]
             forecast_future = forecast[forecast["ds"] > last_train_day]
 
-            # 保存
+            # eval出力
             if not forecast_past.empty:
-                eval_path = os.path.join(eval_dir, f"{last_train_day.strftime('%Y-%m-%d')}.csv")
-                forecast_past[["ds", "yhat", "yhat_lower", "yhat_upper"]].to_csv(eval_path, index=False)
+                eval_csv_path = os.path.join(eval_dir, f"{last_train_day.strftime('%Y-%m-%d')}.csv")
+                forecast_past[["ds", "yhat", "yhat_lower", "yhat_upper"]].to_csv(eval_csv_path, index=False)
+
+                fig_eval, ax_eval = plt.subplots(figsize=(10, 4))
+                ax_eval.plot(grouped_data["ds"], grouped_data["y"], label="実績", linewidth=2)
+                ax_eval.plot(forecast_past["ds"], forecast_past["yhat"], label="予測", linestyle="--")
+                ax_eval.fill_between(forecast_past["ds"], forecast_past["yhat_lower"], forecast_past["yhat_upper"], color="gray", alpha=0.3)
+                ax_eval.set_title(f"{machine_name} 差枚予測（過去区間）", fontproperties=jp_font)
+                ax_eval.set_ylabel("平均差枚", fontproperties=jp_font)
+                ax_eval.set_xlabel("日付", fontproperties=jp_font)
+                ax_eval.legend(prop=jp_font)
+                ax_eval.grid(True)
+                plt.tight_layout()
+                eval_img_path = os.path.join(eval_dir, f"{last_train_day.strftime('%Y-%m-%d')}.png")
+                plt.savefig(eval_img_path)
+                plt.close(fig_eval)
+
+            # forecast出力
             if not forecast_future.empty:
                 last_day = forecast_future["ds"].max().strftime("%Y-%m-%d")
-                forecast_path = os.path.join(forecast_dir, f"{last_day}.csv")
-                forecast_future[["ds", "yhat", "yhat_lower", "yhat_upper"]].to_csv(forecast_path, index=False)
+                forecast_csv_path = os.path.join(forecast_dir, f"{last_day}.csv")
+                forecast_future[["ds", "yhat", "yhat_lower", "yhat_upper"]].to_csv(forecast_csv_path, index=False)
 
-            # プロット（未来含む）
-            fig, ax = plt.subplots(figsize=(10, 4))
-            ax.plot(grouped_data['ds'], grouped_data['y'], label="実績", linewidth=2)
-            ax.plot(forecast['ds'], forecast['yhat'], label="予測", linestyle="--")
-            ax.fill_between(forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'], color="gray", alpha=0.3)
-            ax.set_title(f"{machine_name} 差枚予測", fontproperties=jp_font)
-            ax.set_ylabel("平均差枚", fontproperties=jp_font)
-            ax.set_xlabel("日付", fontproperties=jp_font)
-            ax.legend(prop=jp_font)
-            ax.grid(True)
-            plt.tight_layout()
-
-            png_path = os.path.join(forecast_dir, f"{last_day}.png")
-            plt.savefig(png_path)
-            plt.close(fig)
+                fig_forecast, ax_forecast = plt.subplots(figsize=(10, 4))
+                ax_forecast.plot(forecast_future["ds"], forecast_future["yhat"], label="予測", linestyle="--")
+                ax_forecast.fill_between(forecast_future["ds"], forecast_future["yhat_lower"], forecast_future["yhat_upper"], color="gray", alpha=0.3)
+                ax_forecast.set_title(f"{machine_name} 差枚予測（未来{days}日）", fontproperties=jp_font)
+                ax_forecast.set_ylabel("平均差枚", fontproperties=jp_font)
+                ax_forecast.set_xlabel("日付", fontproperties=jp_font)
+                ax_forecast.legend(prop=jp_font)
+                ax_forecast.grid(True)
+                plt.tight_layout()
+                forecast_img_path = os.path.join(forecast_dir, f"{last_day}.png")
+                plt.savefig(forecast_img_path)
+                plt.close(fig_forecast)
 
             results.append(f"✅ {machine_name} - 予測完了")
 

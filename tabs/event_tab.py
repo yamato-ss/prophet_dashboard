@@ -40,12 +40,11 @@ def convert_to_calendar_events(df, event_master_df):
         for _, row in df.iterrows()
     ]
 
-# ✅ どちらの形式でも日付を JST で返す
 def parse_date_or_datetime(iso_str):
     try:
         return datetime.strptime(iso_str, "%Y-%m-%dT%H:%M:%S.000Z") + timedelta(hours=9)
     except ValueError:
-        return datetime.strptime(iso_str, "%Y-%m-%d")  # JSTとして扱う（既にJST）
+        return datetime.strptime(iso_str, "%Y-%m-%d")
 
 def event_tab():
     st.title("📆 カレンダーイベント管理")
@@ -64,22 +63,42 @@ def event_tab():
         st.session_state["selected_date"] = date.today()
     if "selected_event_tag" not in st.session_state:
         st.session_state["selected_event_tag"] = ""
+    if "calendar_month" not in st.session_state:
+        st.session_state["calendar_month"] = datetime.today()
 
     st.subheader("🗓️ カレンダー表示")
     calendar_events = convert_to_calendar_events(event_days_df, event_master)
-    cal_output = calendar(events=calendar_events, options={"initialView": "dayGridMonth", "selectable": True, "height": 600})
 
-    # ✅ 日付クリック（UTC → JST）+ 選択状態解除
+    options = {
+        "initialView": "dayGridMonth",
+        "selectable": True,
+        "height": 600,
+        "titleFormat": {"month": "2-digit", "year": "numeric"},
+        "initialDate": st.session_state["calendar_month"].strftime("%Y-%m-%d")
+    }
+
+    cal_output = calendar(events=calendar_events, options=options)
+
+    # 📆 表示中の月を保存
+    view_info = (
+        cal_output.get("eventClick", {}).get("view") or
+        cal_output.get("dateClick", {}).get("view")
+    )
+    if view_info:
+        view_month_str = view_info.get("currentStart")  # e.g. "2025-05-01T00:00:00.000Z"
+        if view_month_str:
+            st.session_state["calendar_month"] = parse_date_or_datetime(view_month_str)
+
+    # 📅 日付クリック
     if cal_output.get("dateClick"):
         utc_str = cal_output["dateClick"]["date"]
         selected_date = parse_date_or_datetime(utc_str).date()
         st.session_state["selected_date"] = selected_date
 
-        # 選択した日付に登録がなければ、イベント選択状態を解除
         if not any((event_days_df["日付"].dt.date == selected_date)):
             st.session_state["selected_event_tag"] = ""
 
-    # ✅ イベントクリック
+    # 🏷️ イベントクリック
     event_info = cal_output.get("eventClick", {}).get("event", {})
     event_id = event_info.get("id")
     start_utc = event_info.get("start")
@@ -92,21 +111,22 @@ def event_tab():
     selected_date = st.session_state["selected_date"]
     selected_event_tag = st.session_state["selected_event_tag"]
 
-    # 🛠 編集／削除UI（選択中のみ表示）
+    # 🔧 編集・削除 UI
     if not event_master.empty and selected_event_tag:
         st.markdown("### 🛠 選択中のイベントを操作")
         display_name = event_master.set_index("tag").get("イベント名", {}).get(selected_event_tag, selected_event_tag)
 
         if st.button(f"🗑️ {selected_date} の「{display_name}」を削除する"):
             df = event_days_df[
-                ~((event_days_df["日付"].dt.date == selected_date) & (event_days_df["イベント名"] == selected_event_tag))
+                ~((event_days_df["日付"].dt.date == selected_date) &
+                  (event_days_df["イベント名"] == selected_event_tag))
             ]
             save_event_days(selected_hall, df)
-            st.success(f"{selected_date} の「{display_name}」を削除しました")
             st.session_state["selected_event_tag"] = ""
+            st.success(f"{selected_date} の「{display_name}」を削除しました")
             st.rerun()
 
-    # ➕ イベント追加UI
+    # ➕ イベント追加
     st.subheader("➕ イベントを追加")
     st.markdown(f"📅 選択中の日付： `{selected_date}`")
 
@@ -132,5 +152,26 @@ def event_tab():
             st.success(f"{selected_date} に「{selected_name}」を登録しました")
             st.rerun()
 
+    # 📋 一覧表示
     st.subheader("📋 現在の登録イベント一覧")
     st.dataframe(event_days_df.sort_values("日付"))
+
+    # 📂 イベントマスタ編集（復元）
+    st.subheader("🗂️ イベントマスタの編集")
+    event_master_df = event_master.copy()
+
+    edited_df = st.data_editor(
+        event_master_df,
+        num_rows="dynamic",
+        key="event_master_editor"
+    )
+
+    if st.button("💾 イベントマスタを保存"):
+        if "イベント名" in edited_df.columns and "tag" in edited_df.columns:
+            edited_df = edited_df.dropna(subset=["イベント名", "tag"])
+            save_event_days(selected_hall, event_days_df)  # 念のためイベント一覧保存
+            save_path = os.path.join(get_event_dir(selected_hall), "event.csv")
+            edited_df.to_csv(save_path, index=False)
+            st.success(f"イベントマスタを保存しました: {save_path}")
+        else:
+            st.error("列名 'イベント名' と 'tag' が必要です。")
