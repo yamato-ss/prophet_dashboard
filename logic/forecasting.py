@@ -6,6 +6,7 @@ from PIL import Image
 import os
 from datetime import datetime
 import jpholiday
+from utils.event_flags import apply_event_flags
 from utils.common import get_japanese_font, sanitize_filename
 
 jp_font = get_japanese_font()
@@ -49,9 +50,10 @@ def forecast_machine_with_prophet(df, machine_name, days=7):
 
     grouped["ds"] = pd.to_datetime(grouped["ds"])
     grouped = add_date_flags(grouped)
+    grouped = apply_event_flags(grouped, hall_name)
 
     model = Prophet(daily_seasonality=True)
-    regressor_cols = [col for col in grouped.columns if col.startswith("is_")]
+    regressor_cols = [col for col in grouped.columns if col.startswith(("is_", "event_"))]
     for col in regressor_cols:
         model.add_regressor(col)
 

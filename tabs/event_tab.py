@@ -1,76 +1,136 @@
 import streamlit as st
+from streamlit_calendar import calendar
 import pandas as pd
 import os
-import json
-from datetime import date
+from datetime import date, datetime, timedelta
 
-EVENT_MASTER_FILE = "data/event_master.json"
-EVENT_SCHEDULE_FILE = "data/event_schedule.csv"
+EVENT_BASE_DIR = "data/events"
+FOR_XGB_DIR = "output/for_xgb"
 
-def load_event_master():
-    if os.path.exists(EVENT_MASTER_FILE):
-        with open(EVENT_MASTER_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+def load_hall_list():
+    return sorted([
+        name for name in os.listdir(FOR_XGB_DIR)
+        if os.path.isdir(os.path.join(FOR_XGB_DIR, name))
+    ]) if os.path.exists(FOR_XGB_DIR) else []
 
-def save_event_master(data):
-    os.makedirs(os.path.dirname(EVENT_MASTER_FILE), exist_ok=True)
-    with open(EVENT_MASTER_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def get_event_dir(hall):
+    return os.path.join(EVENT_BASE_DIR, hall)
 
-def load_event_schedule():
-    if os.path.exists(EVENT_SCHEDULE_FILE):
-        return pd.read_csv(EVENT_SCHEDULE_FILE, parse_dates=["日付"])
-    return pd.DataFrame(columns=["ホール", "日付", "イベント"])
+def load_event_master(hall):
+    path = os.path.join(get_event_dir(hall), "event.csv")
+    return pd.read_csv(path) if os.path.exists(path) else pd.DataFrame(columns=["イベント名", "tag"])
 
-def save_event_schedule(df):
-    os.makedirs(os.path.dirname(EVENT_SCHEDULE_FILE), exist_ok=True)
-    df.to_csv(EVENT_SCHEDULE_FILE, index=False)
+def load_event_days(hall):
+    path = os.path.join(get_event_dir(hall), "event_day.csv")
+    return pd.read_csv(path, parse_dates=["日付"]) if os.path.exists(path) else pd.DataFrame(columns=["日付", "イベント名"])
 
-def add_event_to_schedule(hall, event_date, event_name):
-    df = load_event_schedule()
-    # 重複削除して追加
-    df = df[~((df["ホール"] == hall) & (df["日付"] == pd.Timestamp(event_date)))]
-    df = pd.concat([df, pd.DataFrame([{
-        "ホール": hall,
-        "日付": pd.Timestamp(event_date),
-        "イベント": event_name
-    }])], ignore_index=True)
-    save_event_schedule(df)
+def save_event_days(hall, df):
+    path = os.path.join(get_event_dir(hall), "event_day.csv")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    df.to_csv(path, index=False)
+
+def convert_to_calendar_events(df, event_master_df):
+    tag_to_name = dict(zip(event_master_df["tag"], event_master_df["イベント名"]))
+    return [
+        {
+            "id": f"{row['日付'].date()}__{row['イベント名']}",
+            "title": tag_to_name.get(row["イベント名"], row["イベント名"]),
+            "start": row["日付"].strftime("%Y-%m-%d"),
+        }
+        for _, row in df.iterrows()
+    ]
+
+# ✅ どちらの形式でも日付を JST で返す
+def parse_date_or_datetime(iso_str):
+    try:
+        return datetime.strptime(iso_str, "%Y-%m-%dT%H:%M:%S.000Z") + timedelta(hours=9)
+    except ValueError:
+        return datetime.strptime(iso_str, "%Y-%m-%d")  # JSTとして扱う（既にJST）
 
 def event_tab():
-    st.title("🎯 イベント管理")
+    st.title("📆 カレンダーイベント管理")
 
-    st.markdown("ホールを選択し、日付別にイベントを登録・編集できます。")
+    hall_list = load_hall_list()
+    if not hall_list:
+        st.warning("ホールデータが見つかりません")
+        return
 
-    # ホール選択
-    hall_list = sorted(load_event_master().keys()) or ["ホールA", "ホールB"]
     selected_hall = st.selectbox("ホールを選択", hall_list)
+    event_master = load_event_master(selected_hall)
+    event_days_df = load_event_days(selected_hall)
 
-    # イベント候補の編集
-    event_dict = load_event_master()
-    default_events = event_dict.get(selected_hall, [])
-    st.markdown("#### イベント候補の設定")
-    edited = st.text_area("カンマ区切りでイベント名を入力", ",".join(default_events))
-    if st.button("イベント候補を更新"):
-        event_dict[selected_hall] = [e.strip() for e in edited.split(",") if e.strip()]
-        save_event_master(event_dict)
-        st.success("イベント候補を更新しました")
+    # セッション初期化
+    if "selected_date" not in st.session_state:
+        st.session_state["selected_date"] = date.today()
+    if "selected_event_tag" not in st.session_state:
+        st.session_state["selected_event_tag"] = ""
 
-    # 日付選択と登録
-    st.markdown("#### カレンダーでイベント登録")
-    selected_date = st.date_input("イベント日付", value=date.today())
-    event_option = st.selectbox("登録するイベント", event_dict.get(selected_hall, []))
-    if st.button("この日にイベントを登録"):
-        add_event_to_schedule(selected_hall, selected_date, event_option)
-        st.success(f"{selected_date} に '{event_option}' を登録しました")
+    st.subheader("🗓️ カレンダー表示")
+    calendar_events = convert_to_calendar_events(event_days_df, event_master)
+    cal_output = calendar(events=calendar_events, options={"initialView": "dayGridMonth", "selectable": True, "height": 600})
 
-    # 登録済みイベントの表示
-    st.markdown("#### 登録済みイベント一覧")
-    df = load_event_schedule()
-    if not df.empty:
-        df_view = df[df["ホール"] == selected_hall].sort_values("日付")
-        st.dataframe(df_view, use_container_width=True)
-    else:
-        st.info("まだイベントが登録されていません。")
+    # ✅ 日付クリック（UTC → JST）+ 選択状態解除
+    if cal_output.get("dateClick"):
+        utc_str = cal_output["dateClick"]["date"]
+        selected_date = parse_date_or_datetime(utc_str).date()
+        st.session_state["selected_date"] = selected_date
 
+        # 選択した日付に登録がなければ、イベント選択状態を解除
+        if not any((event_days_df["日付"].dt.date == selected_date)):
+            st.session_state["selected_event_tag"] = ""
+
+    # ✅ イベントクリック
+    event_info = cal_output.get("eventClick", {}).get("event", {})
+    event_id = event_info.get("id")
+    start_utc = event_info.get("start")
+
+    if event_id and "__" in event_id and start_utc:
+        d_str, tag = event_id.split("__")
+        st.session_state["selected_date"] = parse_date_or_datetime(start_utc).date()
+        st.session_state["selected_event_tag"] = tag
+
+    selected_date = st.session_state["selected_date"]
+    selected_event_tag = st.session_state["selected_event_tag"]
+
+    # 🛠 編集／削除UI（選択中のみ表示）
+    if not event_master.empty and selected_event_tag:
+        st.markdown("### 🛠 選択中のイベントを操作")
+        display_name = event_master.set_index("tag").get("イベント名", {}).get(selected_event_tag, selected_event_tag)
+
+        if st.button(f"🗑️ {selected_date} の「{display_name}」を削除する"):
+            df = event_days_df[
+                ~((event_days_df["日付"].dt.date == selected_date) & (event_days_df["イベント名"] == selected_event_tag))
+            ]
+            save_event_days(selected_hall, df)
+            st.success(f"{selected_date} の「{display_name}」を削除しました")
+            st.session_state["selected_event_tag"] = ""
+            st.rerun()
+
+    # ➕ イベント追加UI
+    st.subheader("➕ イベントを追加")
+    st.markdown(f"📅 選択中の日付： `{selected_date}`")
+
+    if not event_master.empty:
+        options = event_master.to_dict("records")
+        display_list = [e["イベント名"] for e in options]
+
+        selected_index = st.selectbox(
+            "登録するイベントを選択",
+            range(len(options)),
+            format_func=lambda i: display_list[i]
+        )
+        selected_tag = options[selected_index]["tag"]
+        selected_name = options[selected_index]["イベント名"]
+
+        if st.button("登録 / 上書き保存"):
+            new_row = pd.DataFrame([{
+                "日付": pd.to_datetime(selected_date),
+                "イベント名": selected_tag
+            }])
+            new_df = pd.concat([event_days_df, new_row], ignore_index=True).drop_duplicates()
+            save_event_days(selected_hall, new_df)
+            st.success(f"{selected_date} に「{selected_name}」を登録しました")
+            st.rerun()
+
+    st.subheader("📋 現在の登録イベント一覧")
+    st.dataframe(event_days_df.sort_values("日付"))

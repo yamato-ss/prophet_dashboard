@@ -7,6 +7,7 @@ from tabs.retrain_tab import show as retrain_tab
 from tabs.prophet_tab import show as prophet_tab
 from tabs.xgb_score_tab import score_tab as xgb_score_tab
 from tabs.xgb_prophet_tab import score_tab as xgb_prophet_tab
+from tabs.event_tab import event_tab  # 追加
 
 # アプリ全体の説明を表示
 st.markdown("""
@@ -19,6 +20,7 @@ st.markdown("""
 - 機種ごとの差枚予測（`Prophet予測`）
 - 台ごとの高設定スコア学習（`モデル学習`）
 - 自己学習ループで精度向上（`自己学習`）
+- ホールイベントの登録（`イベント登録`）
 
 ## 🎯 スコア分析・狙い台表示
 - XGBoost単体によるスコアランキング（`XGBoostスコア`）
@@ -44,7 +46,7 @@ st.sidebar.title("📁 タブカテゴリ")
 category = st.sidebar.radio("カテゴリを選択", ["🧪 データ生成・操作", "🎯 スコア分析・狙い台表示"])
 
 if category == "🧪 データ生成・操作":
-    tab = st.sidebar.radio("機能を選択", ["前処理", "Prophet予測", "モデル学習", "自己学習"])
+    tab = st.sidebar.radio("機能を選択", ["前処理", "Prophet予測", "モデル学習", "自己学習", "イベント登録"])
     if tab == "前処理":
         preprocess_tab()
     elif tab == "Prophet予測":
@@ -53,6 +55,8 @@ if category == "🧪 データ生成・操作":
         train_tab()
     elif tab == "自己学習":
         retrain_tab()
+    elif tab == "イベント登録":
+        event_tab()
 
 elif category == "🎯 スコア分析・狙い台表示":
     tab = st.sidebar.radio("機能を選択", ["XGBoostスコア", "ANDスコア統合"])
